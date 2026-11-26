@@ -9,6 +9,7 @@ local.properties
 
 # Agent skills, docs & lockfile
 .agents/skills/
+AGENTS.md
 docs/agents/
 skills-lock.json
 
