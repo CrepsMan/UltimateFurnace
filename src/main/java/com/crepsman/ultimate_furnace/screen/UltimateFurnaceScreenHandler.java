@@ -1,49 +1,92 @@
 package com.crepsman.ultimate_furnace.screen;
 
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.inventory.Inventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.recipe.AbstractCookingRecipe;
-import net.minecraft.recipe.RecipeType;
-import net.minecraft.recipe.book.RecipeBookCategory;
-import net.minecraft.screen.AbstractFurnaceScreenHandler;
-import net.minecraft.screen.PropertyDelegate;
-import net.minecraft.screen.ScreenHandlerType;
 import com.crepsman.ultimate_furnace.blocks.entity.UltimateFurnaceBlockEntity;
 import com.crepsman.ultimate_furnace.util.FurnaceConfig;
+import net.minecraft.world.Container;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractFurnaceMenu;
+import net.minecraft.world.inventory.ContainerData;
+import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.inventory.RecipeBookType;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.AbstractCookingRecipe;
+//? if >=1.21.2 {
+import net.minecraft.world.item.crafting.RecipePropertySet;
+//?}
+import net.minecraft.world.item.crafting.RecipeType;
 
-import java.util.logging.Logger;
+public class UltimateFurnaceScreenHandler extends AbstractFurnaceMenu {
+	private final ContainerData customPropertyDelegate;
+	private final Container container;
 
-public class UltimateFurnaceScreenHandler extends AbstractFurnaceScreenHandler {
-	private final PropertyDelegate customPropertyDelegate;
-	private final Inventory inventory;
-	private static final Logger LOGGER = Logger.getLogger(UltimateFurnaceScreenHandler.class.getName());
-
-	// Primary constructor using RecipeBookCategory (no RecipePropertySet dependency)
-	public UltimateFurnaceScreenHandler(ScreenHandlerType<?> type,
+	//? if >=26.2 {
+	public UltimateFurnaceScreenHandler(MenuType<?> type,
 									  RecipeType<? extends AbstractCookingRecipe> recipeType,
-									  RecipeBookCategory category,
+									  RecipeBookType category,
 									  int syncId,
-									  PlayerInventory playerInventory,
-									  Inventory inventory,
-									  PropertyDelegate propertyDelegate) {
-		super(type, recipeType, category, syncId, playerInventory, inventory, propertyDelegate);
-		this.inventory = inventory;
+									  Inventory playerInventory,
+									  Container container,
+									  ContainerData propertyDelegate) {
+		super(type, RecipePropertySet.FURNACE_INPUT, category, syncId, playerInventory, container, propertyDelegate);
+		this.container = container;
 		this.customPropertyDelegate = propertyDelegate;
-		this.addProperties(customPropertyDelegate);
-		this.slots.set(1, new UltimateFurnaceFuelSlot(this.inventory, 1, 56, 53));
+		this.slots.set(1, new UltimateFurnaceFuelSlot(this.container, 1, 56, 53));
 	}
 
-	// Convenience constructor used by registry lambda
-	public UltimateFurnaceScreenHandler(ScreenHandlerType<?> type,
+	public UltimateFurnaceScreenHandler(MenuType<?> type,
 									  RecipeType<? extends AbstractCookingRecipe> recipeType,
 									  int syncId,
-									  PlayerInventory playerInventory,
-									  Inventory inventory,
-									  PropertyDelegate propertyDelegate) {
-		this(type, recipeType, RecipeBookCategory.FURNACE, syncId, playerInventory, inventory, propertyDelegate);
+									  Inventory playerInventory,
+									  Container container,
+									  ContainerData propertyDelegate) {
+		this(type, recipeType, RecipeBookType.FURNACE, syncId, playerInventory, container, propertyDelegate);
 	}
+	//?} else if >=1.21.2 {
+	/*public UltimateFurnaceScreenHandler(MenuType<?> type,
+									  RecipeType<? extends AbstractCookingRecipe> recipeType,
+									  RecipeBookType category,
+									  int syncId,
+									  Inventory playerInventory,
+									  Container container,
+									  ContainerData propertyDelegate) {
+		super(type, recipeType, RecipePropertySet.FURNACE_INPUT, category, syncId, playerInventory, container, propertyDelegate);
+		this.container = container;
+		this.customPropertyDelegate = propertyDelegate;
+		this.slots.set(1, new UltimateFurnaceFuelSlot(this.container, 1, 56, 53));
+	}
+
+	public UltimateFurnaceScreenHandler(MenuType<?> type,
+									  RecipeType<? extends AbstractCookingRecipe> recipeType,
+									  int syncId,
+									  Inventory playerInventory,
+									  Container container,
+									  ContainerData propertyDelegate) {
+		this(type, recipeType, RecipeBookType.FURNACE, syncId, playerInventory, container, propertyDelegate);
+	}
+	*///?} else {
+	/*public UltimateFurnaceScreenHandler(MenuType<?> type,
+									  RecipeType<? extends AbstractCookingRecipe> recipeType,
+									  RecipeBookType category,
+									  int syncId,
+									  Inventory playerInventory,
+									  Container container,
+									  ContainerData propertyDelegate) {
+		super(type, recipeType, category, syncId, playerInventory, container, propertyDelegate);
+		this.container = container;
+		this.customPropertyDelegate = propertyDelegate;
+		this.slots.set(1, new UltimateFurnaceFuelSlot(this.container, 1, 56, 53));
+	}
+
+	public UltimateFurnaceScreenHandler(MenuType<?> type,
+									  RecipeType<? extends AbstractCookingRecipe> recipeType,
+									  int syncId,
+									  Inventory playerInventory,
+									  Container container,
+									  ContainerData propertyDelegate) {
+		this(type, recipeType, RecipeBookType.FURNACE, syncId, playerInventory, container, propertyDelegate);
+	}
+	*///?}
 
 	public int getMaxSmeltCountForLevel() {
 		int level = getLevel();
@@ -52,25 +95,41 @@ public class UltimateFurnaceScreenHandler extends AbstractFurnaceScreenHandler {
 		return level < maxLevel ? itemsPerLevel * level : itemsPerLevel * maxLevel;
 	}
 
-	public int getLevel() { return customPropertyDelegate.get(1); }
+	public int getLevel() { return Math.max(1, customPropertyDelegate.get(1)); }
 	public int getSmeltCount() { return customPropertyDelegate.get(0); }
 	public int getBurnTime() { return customPropertyDelegate.get(2); }
+	public int getCookTime() { return customPropertyDelegate.get(4); }
+	public int getSunlightPercent() { return customPropertyDelegate.get(6); }
+
+	public int getRawStoredPower() {
+		int low = customPropertyDelegate.get(3) & 0xFFFF;
+		int high = customPropertyDelegate.get(7) & 0xFFFF;
+		return (high << 16) | low;
+	}
+
+	@Override
+	public boolean isLit() {
+		return getBurnTime() > 0;
+	}
 
 	@Override
 	protected boolean isFuel(ItemStack itemStack) { return false; }
 
 	public int getSmeltCountProgress() {
 		int smeltCount = customPropertyDelegate.get(0);
-		int level = customPropertyDelegate.get(1);
+		int level = getLevel();
+		if (level >= FurnaceConfig.getMaxLevel()) {
+			return 100;
+		}
 		int itemsPerLevel = FurnaceConfig.getItemsPerLevel();
 		int maxSmeltCount = itemsPerLevel * level;
-		return maxSmeltCount > 0 ? smeltCount * 100 / maxSmeltCount : 0;
+		return maxSmeltCount > 0 ? Math.min(100, Math.max(0, smeltCount * 100 / maxSmeltCount)) : 0;
 	}
 
 	public int getStoredPower() {
-		int storedPower = customPropertyDelegate.get(3);
+		int storedPower = getRawStoredPower();
 		int maxPower = UltimateFurnaceBlockEntity.getMaxStoredPower(getLevel());
-		return maxPower > 0 ? (int) (storedPower * 100.0f / maxPower) : 0;
+		return maxPower > 0 ? Math.min(100, (int) (storedPower * 100.0f / maxPower)) : 0;
 	}
 
 	public int getCookingProgress() {
@@ -79,8 +138,6 @@ public class UltimateFurnaceScreenHandler extends AbstractFurnaceScreenHandler {
 		return cookTimeTotal != 0 ? (cookTime * 100) / cookTimeTotal : 0;
 	}
 
-	protected boolean isSmeltable(ItemStack itemStack) { return true; }
-
 	@Override
-	public boolean canUse(PlayerEntity player) { return this.inventory.canPlayerUse(player); }
+	public boolean stillValid(Player player) { return this.container.stillValid(player); }
 }
