@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:function",
+  "environment": "minecraft:default",
+  "function": "ultimate_furnace:copper_plate_thermal_and_world_effects",
+  "max_ticks": 200,
+  "required": true,
+  "setup_ticks": 0,
+  "sky_access": true,
+  "structure": "ultimate_furnace:empty"
+}
