@@ -1,59 +1,89 @@
 package com.crepsman.ultimate_furnace.blocks.entity;
 
 import com.crepsman.ultimate_furnace.blocks.UltimateFurnaceBlock;
+import com.crepsman.ultimate_furnace.logic.SolarMath;
 import com.crepsman.ultimate_furnace.registry.ModBlockEntities;
 import com.crepsman.ultimate_furnace.registry.ModScreenHandlers;
 import com.crepsman.ultimate_furnace.screen.UltimateFurnaceScreenHandler;
-import com.crepsman.ultimate_furnace.util.ModProperties;
 import com.crepsman.ultimate_furnace.util.FurnaceConfig;
-import net.minecraft.block.AbstractFurnaceBlock;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.entity.AbstractFurnaceBlockEntity;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.inventory.SidedInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.recipe.*;
-import net.minecraft.recipe.input.SingleStackRecipeInput;
-import net.minecraft.registry.DynamicRegistryManager;
-import net.minecraft.registry.RegistryWrapper;
-import net.minecraft.screen.PropertyDelegate;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.collection.DefaultedList;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.world.LightType;
-import net.minecraft.world.World;
+import com.crepsman.ultimate_furnace.util.ModProperties;
+//? if >=1.20.5 && <1.21.6 {
+/*import net.minecraft.core.HolderLookup;
+*///?}
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.NonNullList;
+//? if >=1.20 && <26.1 {
+/*import net.minecraft.core.RegistryAccess;
+*///?}
+//? if <1.21.6 {
+/*import net.minecraft.nbt.CompoundTag;
+*///?}
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BlockTags;
+//? if <1.21 {
+/*import net.minecraft.world.Container;
+import net.minecraft.world.SimpleContainer;
+*///?}
+import net.minecraft.world.WorldlyContainer;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerData;
+import net.minecraft.world.item.ItemStack;
+//? if >=1.20.2 {
+import net.minecraft.world.item.crafting.RecipeHolder;
+//?}
+import net.minecraft.world.item.crafting.RecipeManager;
+import net.minecraft.world.item.crafting.RecipeType;
+//? if >=1.21 {
+import net.minecraft.world.item.crafting.SingleRecipeInput;
+//?}
+import net.minecraft.world.item.crafting.SmeltingRecipe;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.block.AbstractFurnaceBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
+//? if >=1.21.6 {
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
+//?}
 
 import java.util.Optional;
 
-
-public class UltimateFurnaceBlockEntity extends AbstractFurnaceBlockEntity implements SidedInventory {
-	// Removed hard-coded constants; now using FurnaceConfig
+public class UltimateFurnaceBlockEntity extends AbstractFurnaceBlockEntity implements WorldlyContainer {
 	private int smeltCount = 0;
 	private int level = 1;
 	private int burnTime;
 	private int storedPower = 0;
 	private int cookTime;
 	private int cookTimeTotal;
+	private int sunlightPercent = 0;
+	private boolean activelySmelting = false;
 
-	private final PropertyDelegate propertyDelegate;
+	private double cookAccumulator = 0.0;
+	private double chargeAccumulator = 0.0;
+	private double powerUseAccumulator = 0.0;
+
+	private final ContainerData propertyDelegate;
 
 	public UltimateFurnaceBlockEntity(BlockPos pos, BlockState state) {
 		super(ModBlockEntities.ULTIMATE_FURNACE_BLOCK_ENTITY, pos, state, RecipeType.SMELTING);
-		this.propertyDelegate = new PropertyDelegate() {
+		this.propertyDelegate = new ContainerData() {
 			@Override
 			public int get(int index) {
 				switch (index) {
 					case 0: return smeltCount;
 					case 1: return level;
 					case 2: return burnTime;
-					case 3: return storedPower;
+					case 3: return storedPower & 0xFFFF;
 					case 4: return cookTime;
 					case 5: return cookTimeTotal;
+					case 6: return sunlightPercent;
+					case 7: return (storedPower >>> 16) & 0xFFFF;
 					default: return 0;
 				}
 			}
@@ -64,30 +94,23 @@ public class UltimateFurnaceBlockEntity extends AbstractFurnaceBlockEntity imple
 					case 0: smeltCount = value; break;
 					case 1: level = value; break;
 					case 2: burnTime = value; break;
-					case 3: storedPower = value; break;
+					case 3: storedPower = (storedPower & 0xFFFF0000) | (value & 0xFFFF); break;
 					case 4: cookTime = value; break;
 					case 5: cookTimeTotal = value; break;
+					case 6: sunlightPercent = value; break;
+					case 7: storedPower = (storedPower & 0x0000FFFF) | ((value & 0xFFFF) << 16); break;
 				}
 			}
 
 			@Override
-			public int size() {
-				return 6;
+			public int getCount() {
+				return 8;
 			}
 		};
-
-		if (this.world != null) {
-			boolean isDay = this.world.getTimeOfDay() % 24000 < 12000;
-			boolean hasDirectSkylight = this.world.getLightLevel(LightType.SKY, pos.up()) > 0;
-
-			if (!state.get(ModProperties.DAY_MODE)) {
-				this.world.setBlockState(pos, state.with(ModProperties.DAY_MODE, isDay && hasDirectSkylight), Block.NOTIFY_ALL);
-			}
-		}
 	}
 
 	@Override
-	public boolean canExtract(int slot, ItemStack stack, Direction side) {
+	public boolean canTakeItemThroughFace(int slot, ItemStack stack, Direction side) {
 		return slot != 0; // Prevent extraction from the input slot
 	}
 
@@ -108,159 +131,347 @@ public class UltimateFurnaceBlockEntity extends AbstractFurnaceBlockEntity imple
 	}
 
 	public void setSmeltCount(int count) {
-		this.smeltCount = count;
+		this.smeltCount = Math.max(0, count);
 	}
 
 	public void setLevel(int level) {
-		this.level = level;
+		this.level = Math.max(1, Math.min(FurnaceConfig.getMaxLevel(), level));
+		int maxPower = getMaxStoredPower(this.level);
+		if (this.storedPower > maxPower) {
+			this.storedPower = maxPower;
+		}
+	}
+
+	public int getSunlightPercent() {
+		return this.sunlightPercent;
 	}
 
 	public boolean isBurning() {
-		return this.cookTime > 0 || this.storedPower > 0;
+		return this.activelySmelting;
 	}
 
-	private void updateDaytimeBurning(World world, BlockPos pos) {
-		if (world == null) return;
+	/**
+	 * Computes effective direct sunlight percentage (0..100) reaching the furnace's top face.
+	 * - Torches/block light do not count (only sky access & LightLayer.SKY).
+	 * - Solid opaque blocks anywhere straight above block sunlight completely (0%).
+	 * - Clear glass / non-light-blocking transparent blocks pass 100%.
+	 * - Leaves attenuate sunlight by 25% per leaf block above (4+ leaves = 0%).
+	 * - Thunderstorms block sunlight completely (0%); rain reduces sunlight to 10%.
+	 */
+	public static int getSunlightPercent(Level world, BlockPos pos) {
+		if (world == null || pos == null) return 0;
 
-		boolean isDay = world.getTimeOfDay() % 24000 < 12000;
-		boolean hasDirectSkylight = world.getLightLevel(LightType.SKY, pos.up()) > 0;
-		boolean newDayMode = isDay && hasDirectSkylight;
-
-		if (newDayMode && this.level > 1 && this.storedPower < getMaxStoredPower(this.level)) {
-			int powerGainRate = FurnaceConfig.getPowerGainRateForLevel(this.level);
-			this.storedPower = Math.min(this.storedPower + powerGainRate, getMaxStoredPower(this.level));
+		//? if >=26.1 {
+		boolean isDay = world.getDefaultClockTime() % 24000 < 12000;
+		//?} else {
+		/*boolean isDay = world.getDayTime() % 24000 < 12000;
+		*///?}
+		if (!isDay || world.isThundering()) {
+			return 0;
 		}
 
-		BlockState currentState = world.getBlockState(pos);
-		if (currentState.get(UltimateFurnaceBlock.DAY_MODE) != newDayMode) {
-			world.setBlockState(pos, currentState.with(UltimateFurnaceBlock.DAY_MODE, newDayMode), Block.NOTIFY_ALL);
+		int skyBrightness = world.getBrightness(LightLayer.SKY, pos.above());
+		if (skyBrightness <= 0) {
+			return 0;
 		}
+
+		//? if >=1.21.2 {
+		int maxY = world.getMaxY();
+		//?} else {
+		/*int maxY = world.getMaxBuildHeight() - 1;
+		*///?}
+		int surfaceY = world.getHeight(Heightmap.Types.WORLD_SURFACE, pos.getX(), pos.getZ());
+		int scanTop = Math.min(maxY, surfaceY - 1);
+
+		int leafCount = 0;
+		boolean blockedByOpaque = false;
+		BlockPos.MutableBlockPos checkPos = new BlockPos.MutableBlockPos();
+		for (int y = pos.getY() + 1; y <= scanTop; y++) {
+			checkPos.set(pos.getX(), y, pos.getZ());
+			BlockState colState = world.getBlockState(checkPos);
+			if (colState.isAir()) continue;
+			if (colState.is(BlockTags.LEAVES)) {
+				leafCount++;
+				if (leafCount >= 4) {
+					return 0;
+				}
+				continue;
+			}
+			//? if >=26.1 {
+			int lightBlock = colState.getLightDampening();
+			//?} else if >=1.21.2 {
+			/*int lightBlock = colState.getLightBlock();
+			*///?} else {
+			/*int lightBlock = colState.getLightBlock(world, checkPos);
+			*///?}
+			if (lightBlock > 0) {
+				blockedByOpaque = true;
+				break;
+			}
+		}
+
+		return SolarMath.computeSunlightPercent(
+			isDay,
+			world.isThundering(),
+			world.isRaining(),
+			skyBrightness,
+			leafCount,
+			blockedByOpaque
+		);
 	}
 
-	private void smeltItem(DynamicRegistryManager registryManager, RecipeEntry<SmeltingRecipe> recipe) {
-		if (recipe != null && canAcceptRecipeOutput(registryManager, recipe, this.inventory, this.getMaxCountPerStack())) {
-			ItemStack inputStack = this.inventory.get(0);
-			ItemStack outputStack = recipe.value().craft(new SingleStackRecipeInput(inputStack), registryManager);
-			ItemStack currentOutputStack = this.inventory.get(2);
+	//? if >=26.1 {
+	private void smeltItem(RecipeHolder<SmeltingRecipe> recipe) {
+		if (recipe != null && canAcceptRecipeOutput(recipe, this.items, this.getMaxStackSize())) {
+			ItemStack inputStack = this.items.get(0);
+			ItemStack outputStack = recipe.value().assemble(new SingleRecipeInput(inputStack));
+	//?} else if >=1.20.2 {
+	/*private void smeltItem(RegistryAccess registryManager, RecipeHolder<SmeltingRecipe> recipe) {
+		if (recipe != null && canAcceptRecipeOutput(registryManager, recipe, this.items, this.getMaxStackSize())) {
+			ItemStack inputStack = this.items.get(0);
+			//? if >=1.21 {
+			ItemStack outputStack = recipe.value().assemble(new SingleRecipeInput(inputStack), registryManager);
+			//?} else {
+			/^ItemStack outputStack = recipe.value().assemble(new SimpleContainer(inputStack), registryManager);
+			^///?}
+	*///?} else if >=1.20 {
+	/*private void smeltItem(RegistryAccess registryManager, SmeltingRecipe recipe) {
+		if (recipe != null && canAcceptRecipeOutput(registryManager, recipe, this.items, this.getMaxStackSize())) {
+			ItemStack inputStack = this.items.get(0);
+			ItemStack outputStack = recipe.assemble(new SimpleContainer(inputStack), registryManager);
+	*///?} else {
+	/*private void smeltItem(SmeltingRecipe recipe) {
+		if (recipe != null && canAcceptRecipeOutput(recipe, this.items, this.getMaxStackSize())) {
+			ItemStack inputStack = this.items.get(0);
+			ItemStack outputStack = recipe.assemble(new SimpleContainer(inputStack));
+	*///?}
+			ItemStack currentOutputStack = this.items.get(2);
 
 			if (currentOutputStack.isEmpty()) {
-				this.inventory.set(2, outputStack.copy());
-			} else if (ItemStack.areItemsEqual(currentOutputStack, outputStack)) {
-				currentOutputStack.increment(outputStack.getCount());
+				this.items.set(2, outputStack.copy());
+			//? if >=1.20 {
+			} else if (ItemStack.isSameItem(currentOutputStack, outputStack)) {
+			//?} else {
+			/*} else if (ItemStack.isSame(currentOutputStack, outputStack)) {
+			*///?}
+				currentOutputStack.grow(outputStack.getCount());
 			}
 
-			inputStack.decrement(1);
+			inputStack.shrink(1);
 			smeltCount++;
-			this.cookTime = 0; // Reset cook time
-			this.cookTimeTotal = getCookTime(); // Set cook time based on level
-
-			// Decrement stored power
-			if (this.storedPower > 0) {
-				this.storedPower--;
-			}
+			this.cookTime = 0;
+			this.cookAccumulator = 0.0;
+			this.cookTimeTotal = getCookTime();
 		} else {
-			cookTime = 0;
+			this.cookTime = 0;
+			this.cookAccumulator = 0.0;
 		}
 	}
 
-	public static void tick(World world, BlockPos pos, BlockState state, UltimateFurnaceBlockEntity blockEntity) {
-		if (world == null || pos == null || state == null || blockEntity == null) {
+	public static void tick(Level world, BlockPos pos, BlockState state, UltimateFurnaceBlockEntity blockEntity) {
+		if (world == null || pos == null || state == null || blockEntity == null || world.isClientSide()) {
 			return;
 		}
 
-		blockEntity.updateDaytimeBurning(world, pos);
-
-		boolean isBurning = blockEntity.isBurning();
-		boolean stateChanged = false;
-
-		if (isBurning) {
-			--blockEntity.burnTime;
+		int maxPower = getMaxStoredPower(blockEntity.level);
+		if (blockEntity.storedPower > maxPower) {
+			blockEntity.storedPower = maxPower;
 		}
 
-		ItemStack inputStack = blockEntity.getStack(0);
-		ItemStack outputStack = blockEntity.getStack(2);
+		int sunlight = getSunlightPercent(world, pos);
+		blockEntity.sunlightPercent = sunlight;
+		boolean hasSunlight = sunlight > 0;
+		boolean wasActivelySmelting = blockEntity.activelySmelting;
+		boolean stateChanged = false;
+
+		ItemStack inputStack = blockEntity.getItem(0);
+		ItemStack outputStack = blockEntity.getItem(2);
 		boolean hasInput = !inputStack.isEmpty();
-		boolean canSmelt = outputStack.getCount() < outputStack.getMaxCount();
+		boolean hasOutputRoom = outputStack.getCount() < outputStack.getMaxStackSize();
 
-		if (hasInput && canSmelt) {
-			Optional<RecipeEntry<SmeltingRecipe>> recipeEntry = blockEntity.getFirstMatch(new SingleStackRecipeInput(inputStack), world);
+		boolean canSmeltNow = false;
+		//? if >=1.20.2 {
+		RecipeHolder<SmeltingRecipe> activeRecipe = null;
+		//?} else {
+		/*SmeltingRecipe activeRecipe = null;
+		*///?}
+		if (hasInput && hasOutputRoom) {
+			//? if >=1.21 {
+			Optional<RecipeHolder<SmeltingRecipe>> recipeEntry = blockEntity.getFirstMatch(new SingleRecipeInput(inputStack), world);
 			if (recipeEntry.isPresent()) {
-				RecipeEntry<SmeltingRecipe> recipe = recipeEntry.get();
-				if (recipe != null) {
-					// Set cookTimeTotal when we start cooking or recipe changes
-					if (blockEntity.cookTime == 0) {
-						blockEntity.cookTimeTotal = blockEntity.getCookTime();
-					}
-
-					if (blockEntity.cookTime < blockEntity.cookTimeTotal) {
-						blockEntity.cookTime++;
-					} else {
-						blockEntity.smeltItem(world.getRegistryManager(), recipe);
-						if (blockEntity.level == 1) {
-							blockEntity.burnTime = 200; // Set burn time for level 1
-						}
-					}
+				RecipeHolder<SmeltingRecipe> recipe = recipeEntry.get();
+			//?} else if >=1.20.2 {
+			/*Optional<RecipeHolder<SmeltingRecipe>> recipeEntry = blockEntity.getFirstMatch(new SimpleContainer(inputStack), world);
+			if (recipeEntry.isPresent()) {
+				RecipeHolder<SmeltingRecipe> recipe = recipeEntry.get();
+			*///?} else {
+			/*Optional<SmeltingRecipe> recipeEntry = blockEntity.getFirstMatch(new SimpleContainer(inputStack), world);
+			if (recipeEntry.isPresent()) {
+				SmeltingRecipe recipe = recipeEntry.get();
+			*///?}
+				//? if >=26.1 {
+				boolean recipeFits = canAcceptRecipeOutput(recipe, blockEntity.items, blockEntity.getMaxStackSize());
+				//?} else if >=1.20 {
+				/*boolean recipeFits = canAcceptRecipeOutput(world.registryAccess(), recipe, blockEntity.items, blockEntity.getMaxStackSize());
+				*///?} else {
+				/*boolean recipeFits = canAcceptRecipeOutput(recipe, blockEntity.items, blockEntity.getMaxStackSize());
+				*///?}
+				if (recipeFits && (sunlight > 0 || blockEntity.storedPower > 0)) {
+					canSmeltNow = true;
+					blockEntity.cookTimeTotal = blockEntity.getCookTime();
+					activeRecipe = recipe;
 				} else {
-					blockEntity.cookTime = 0;
+					if (blockEntity.cookTime > 0) {
+						blockEntity.cookTime = Math.max(0, blockEntity.cookTime - 2);
+						blockEntity.cookAccumulator = 0.0;
+					}
 				}
 			} else {
 				blockEntity.cookTime = 0;
+				blockEntity.cookAccumulator = 0.0;
 			}
 		} else {
 			blockEntity.cookTime = 0;
-			if (!hasInput) {
-				blockEntity.burnTime = 0;
-			}
+			blockEntity.cookAccumulator = 0.0;
 		}
 
-		boolean dayMode = state.get(ModProperties.DAY_MODE); // Get current day mode
-		boolean newDayMode = world.getTimeOfDay() % 24000 < 12000 && world.getLightLevel(LightType.SKY, pos.up()) > 0; // Recalculate day mode
-
-		if (isBurning != blockEntity.isBurning() || dayMode != newDayMode) {
-			world.setBlockState(pos, state
-				.with(AbstractFurnaceBlock.LIT, blockEntity.isBurning())
-				.with(ModProperties.DAY_MODE, newDayMode), Block.NOTIFY_ALL);
+		SolarMath.StepResult step = SolarMath.stepTick(
+			blockEntity.level,
+			sunlight,
+			blockEntity.storedPower,
+			maxPower,
+			FurnaceConfig.getPowerUseRateForLevel(blockEntity.level),
+			FurnaceConfig.getPowerGainRateForLevel(blockEntity.level),
+			canSmeltNow,
+			blockEntity.cookAccumulator,
+			blockEntity.powerUseAccumulator,
+			blockEntity.chargeAccumulator
+		);
+		blockEntity.storedPower = step.storedPower;
+		blockEntity.cookTime += step.cookProgressDelta;
+		blockEntity.cookAccumulator = step.cookAccumulator;
+		blockEntity.powerUseAccumulator = step.powerUseAccumulator;
+		blockEntity.chargeAccumulator = step.chargeAccumulator;
+		if (step.powerChanged) {
 			stateChanged = true;
 		}
 
-		if (stateChanged) {
-			blockEntity.markDirty();
+		boolean didSmelt = false;
+		if (activeRecipe != null && blockEntity.cookTime >= blockEntity.cookTimeTotal) {
+			//? if >=26.1 {
+			blockEntity.smeltItem(activeRecipe);
+			//?} else if >=1.20 {
+			/*blockEntity.smeltItem(world.registryAccess(), activeRecipe);
+			*///?} else {
+			/*blockEntity.smeltItem(activeRecipe);
+			*///?}
+			didSmelt = true;
+			stateChanged = true;
+		}
+
+		boolean stillSmelting = canSmeltNow;
+		if (stillSmelting && sunlight <= 0 && blockEntity.storedPower <= 0) {
+			stillSmelting = false;
+		}
+		if (stillSmelting && didSmelt) {
+			ItemStack remainingInput = blockEntity.getItem(0);
+			ItemStack updatedOutput = blockEntity.getItem(2);
+			if (remainingInput.isEmpty() || updatedOutput.getCount() >= updatedOutput.getMaxStackSize()) {
+				stillSmelting = false;
+			} else {
+				//? if >=26.1 {
+				stillSmelting = canAcceptRecipeOutput(activeRecipe, blockEntity.items, blockEntity.getMaxStackSize());
+				//?} else if >=1.20 {
+				/*stillSmelting = canAcceptRecipeOutput(world.registryAccess(), activeRecipe, blockEntity.items, blockEntity.getMaxStackSize());
+				*///?} else {
+				/*stillSmelting = canAcceptRecipeOutput(activeRecipe, blockEntity.items, blockEntity.getMaxStackSize());
+				*///?}
+			}
+		}
+
+		blockEntity.activelySmelting = stillSmelting;
+		blockEntity.burnTime = stillSmelting ? 200 : 0;
+
+		boolean currentLit = state.getValue(AbstractFurnaceBlock.LIT);
+		boolean currentDayMode = state.getValue(ModProperties.DAY_MODE);
+		if (currentLit != stillSmelting || currentDayMode != hasSunlight || wasActivelySmelting != stillSmelting) {
+			world.setBlock(
+				pos,
+				state.setValue(AbstractFurnaceBlock.LIT, stillSmelting)
+					.setValue(ModProperties.DAY_MODE, hasSunlight),
+				Block.UPDATE_ALL
+			);
+			stateChanged = true;
 		}
 
 		// Leveling threshold from config
 		int requiredForNextLevel = FurnaceConfig.getItemsPerLevel() * blockEntity.getFurnaceLevel();
 		if (blockEntity.smeltCount >= requiredForNextLevel) {
 			blockEntity.levelUp();
+			stateChanged = true;
 		}
 
-		if (!dayMode && blockEntity.storedPower > 0) {
-			blockEntity.storedPower--;
+		if (stateChanged) {
+			blockEntity.setChanged();
 		}
 	}
-	private Optional<RecipeEntry<SmeltingRecipe>> getFirstMatch(SingleStackRecipeInput input, World world) {
-		if (world instanceof ServerWorld serverWorld) {
-			RecipeManager recipeManager = serverWorld.getRecipeManager();
+
+	//? if >=1.21 {
+	private Optional<RecipeHolder<SmeltingRecipe>> getFirstMatch(SingleRecipeInput input, Level world) {
+	//?} else if >=1.20.2 {
+	/*private Optional<RecipeHolder<SmeltingRecipe>> getFirstMatch(Container input, Level world) {
+	*///?} else {
+	/*private Optional<SmeltingRecipe> getFirstMatch(Container input, Level world) {
+	*///?}
+		if (world instanceof ServerLevel serverLevel) {
+			//? if >=1.21.2 {
+			RecipeManager recipeManager = serverLevel.recipeAccess();
+			//?} else {
+			/*RecipeManager recipeManager = serverLevel.getRecipeManager();
+			*///?}
 			if (recipeManager == null || input == null) return Optional.empty();
-			return recipeManager.getFirstMatch(RecipeType.SMELTING, input, world);
+			return recipeManager.getRecipeFor(RecipeType.SMELTING, input, world);
 		}
 		return Optional.empty();
 	}
 
-	private boolean canAcceptRecipeOutput(DynamicRegistryManager registryManager, RecipeEntry<SmeltingRecipe> recipe, DefaultedList<ItemStack> slots, int count) {
+	//? if >=26.1 {
+	private static boolean canAcceptRecipeOutput(RecipeHolder<SmeltingRecipe> recipe, NonNullList<ItemStack> slots, int count) {
 		if (!slots.get(0).isEmpty() && recipe != null) {
-			ItemStack itemStack = recipe.value().craft(new SingleStackRecipeInput(slots.get(0)), registryManager);
+			ItemStack itemStack = recipe.value().assemble(new SingleRecipeInput(slots.get(0)));
+	//?} else if >=1.20.2 {
+	/*private static boolean canAcceptRecipeOutput(RegistryAccess registryManager, RecipeHolder<SmeltingRecipe> recipe, NonNullList<ItemStack> slots, int count) {
+		if (!slots.get(0).isEmpty() && recipe != null) {
+			//? if >=1.21 {
+			ItemStack itemStack = recipe.value().assemble(new SingleRecipeInput(slots.get(0)), registryManager);
+			//?} else {
+			/^ItemStack itemStack = recipe.value().assemble(new SimpleContainer(slots.get(0)), registryManager);
+			^///?}
+	*///?} else if >=1.20 {
+	/*private static boolean canAcceptRecipeOutput(RegistryAccess registryManager, SmeltingRecipe recipe, NonNullList<ItemStack> slots, int count) {
+		if (!slots.get(0).isEmpty() && recipe != null) {
+			ItemStack itemStack = recipe.assemble(new SimpleContainer(slots.get(0)), registryManager);
+	*///?} else {
+	/*private static boolean canAcceptRecipeOutput(SmeltingRecipe recipe, NonNullList<ItemStack> slots, int count) {
+		if (!slots.get(0).isEmpty() && recipe != null) {
+			ItemStack itemStack = recipe.assemble(new SimpleContainer(slots.get(0)));
+	*///?}
 			if (itemStack.isEmpty()) {
 				return false;
 			} else {
 				ItemStack itemStack2 = slots.get(2);
 				if (itemStack2.isEmpty()) {
 					return true;
-				} else if (!ItemStack.areItemsEqual(itemStack2, itemStack)) {
+				//? if >=1.20 {
+				} else if (!ItemStack.isSameItem(itemStack2, itemStack)) {
+				//?} else {
+				/*} else if (!ItemStack.isSame(itemStack2, itemStack)) {
+				*///?}
 					return false;
-				} else if (itemStack2.getCount() < count && itemStack2.getCount() < itemStack2.getMaxCount()) {
+				} else if (itemStack2.getCount() < count && itemStack2.getCount() < itemStack2.getMaxStackSize()) {
 					return true;
 				} else {
-					return itemStack2.getCount() < itemStack.getMaxCount();
+					return itemStack2.getCount() < itemStack.getMaxStackSize();
 				}
 			}
 		} else {
@@ -268,9 +479,29 @@ public class UltimateFurnaceBlockEntity extends AbstractFurnaceBlockEntity imple
 		}
 	}
 
+	//? if >=1.21.6 {
 	@Override
-	public void writeNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup lookup) {
-		super.writeNbt(nbt, lookup);
+	protected void saveAdditional(ValueOutput output) {
+		super.saveAdditional(output);
+		output.putInt("SmeltCount", this.smeltCount);
+		output.putInt("Level", this.level);
+		output.putInt("BurnTime", this.burnTime);
+		output.putInt("StoredPower", this.storedPower);
+	}
+
+	@Override
+	protected void loadAdditional(ValueInput input) {
+		super.loadAdditional(input);
+		this.smeltCount = input.getIntOr("SmeltCount", 0);
+		this.level = Math.max(1, input.getIntOr("Level", 1));
+		this.burnTime = input.getIntOr("BurnTime", 0);
+		this.activelySmelting = this.burnTime > 0;
+		this.storedPower = Math.max(0, input.getIntOr("StoredPower", 0));
+	}
+	//?} else if >=1.20.5 {
+	/*@Override
+	protected void saveAdditional(CompoundTag nbt, HolderLookup.Provider lookup) {
+		super.saveAdditional(nbt, lookup);
 		nbt.putInt("SmeltCount", this.smeltCount);
 		nbt.putInt("Level", this.level);
 		nbt.putInt("BurnTime", this.burnTime);
@@ -278,30 +509,59 @@ public class UltimateFurnaceBlockEntity extends AbstractFurnaceBlockEntity imple
 	}
 
 	@Override
-	public void readNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup lookup) {
-		super.readNbt(nbt, lookup);
-		this.smeltCount = nbt.getInt("SmeltCount");
-		this.level = nbt.getInt("Level");
+	protected void loadAdditional(CompoundTag nbt, HolderLookup.Provider lookup) {
+		super.loadAdditional(nbt, lookup);
+		//? if >=1.21.5 {
+		this.smeltCount = nbt.getIntOr("SmeltCount", 0);
+		this.level = Math.max(1, nbt.getIntOr("Level", 1));
+		this.burnTime = nbt.getIntOr("BurnTime", 0);
+		this.activelySmelting = this.burnTime > 0;
+		this.storedPower = Math.max(0, nbt.getIntOr("StoredPower", 0));
+		//?} else {
+		/^this.smeltCount = nbt.getInt("SmeltCount");
+		this.level = Math.max(1, nbt.getInt("Level"));
 		this.burnTime = nbt.getInt("BurnTime");
-		this.storedPower = nbt.getInt("StoredPower");
+		this.activelySmelting = this.burnTime > 0;
+		this.storedPower = Math.max(0, nbt.getInt("StoredPower"));
+		^///?}
 	}
+	*///?} else {
+	/*@Override
+	protected void saveAdditional(CompoundTag nbt) {
+		super.saveAdditional(nbt);
+		nbt.putInt("SmeltCount", this.smeltCount);
+		nbt.putInt("Level", this.level);
+		nbt.putInt("BurnTime", this.burnTime);
+		nbt.putInt("StoredPower", this.storedPower);
+	}
+
+	@Override
+	public void load(CompoundTag nbt) {
+		super.load(nbt);
+		this.smeltCount = nbt.getInt("SmeltCount");
+		this.level = Math.max(1, nbt.getInt("Level"));
+		this.burnTime = nbt.getInt("BurnTime");
+		this.activelySmelting = this.burnTime > 0;
+		this.storedPower = Math.max(0, nbt.getInt("StoredPower"));
+	}
+	*///?}
 
 	private int getCookTime() {
 		return FurnaceConfig.getCookTimeForLevel(this.level);
 	}
 
 	@Override
-	public int[] getAvailableSlots(Direction side) {
+	public int[] getSlotsForFace(Direction side) {
 		return new int[]{0, 2};
 	}
 
 	@Override
-	protected Text getContainerName() {
-		return Text.translatable("container.ultimate_furnace.ultimate_furnace");
+	protected Component getDefaultName() {
+		return Component.translatable("container.ultimate_furnace.ultimate_furnace");
 	}
 
 	@Override
-	public ScreenHandler createScreenHandler(int syncId, PlayerInventory playerInventory) {
+	public AbstractContainerMenu createMenu(int syncId, Inventory playerInventory) {
 		return new UltimateFurnaceScreenHandler(
 			ModScreenHandlers.ULTIMATE_FURNACE_SCREEN_HANDLER,
 			RecipeType.SMELTING,
@@ -311,8 +571,9 @@ public class UltimateFurnaceBlockEntity extends AbstractFurnaceBlockEntity imple
 			this.propertyDelegate
 		);
 	}
+
 	public void setStoredPower(int storedPower) {
-		this.storedPower = storedPower;
+		this.storedPower = Math.max(0, Math.min(getMaxStoredPower(this.level), storedPower));
 	}
 
 	public int getStoredPower() {
