@@ -7,6 +7,10 @@ classes/
 # Local secrets & overrides
 local.properties
 
+# Agent skills & lockfile
+.agents/skills/
+skills-lock.json
+
 # Game run & cache directories under Stonecutter versions/
 versions/*/.cache/
 versions/*/config/
