@@ -1,37 +1,37 @@
 {
 	"schemaVersion": 1,
-	"id": "ultimate_furnace",
-	"version": "1.3.3",
-	"name": "Ultimate Furnace",
-	"description": "The ultimate furnace mod!",
+	"id": "${id}",
+	"version": "${version}",
+	"name": "${name}",
+	"description": "${description}",
 	"authors": [
 		"CrepsMan"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"homepage": "https://github.com/CrepsMan/UltimateFurnace",
+		"sources": "https://github.com/CrepsMan/UltimateFurnace"
 	},
 	"license": "CC0-1.0",
-	"icon": "assets/ultimate_furnace/icon.png",
+	"icon": "assets/${id}/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
 			"com.crepsman.ultimate_furnace.UltimateFurnaceMod"
 		],
-    "client": [
-      "com.crepsman.ultimate_furnace.UltimateFurnaceModClient"
-    ]
+		"client": [
+			"com.crepsman.ultimate_furnace.UltimateFurnaceModClient"
+		],
+		"fabric-gametest": [
+			"com.crepsman.ultimate_furnace.gametest.UltimateFurnaceFabricGameTests"
+		]
 	},
-	"mixins": [
-
-	],
+	"mixins": [],
 	"depends": {
-		"fabricloader": ">=0.16.9",
-		"minecraft": "1.21.x",
-		"java": ">=21",
+		"fabricloader": ">=${fabricLoaderMin}",
+		"minecraft": "${minecraftVersion}",
+		"java": ">=${javaVersion}",
 		"fabric-api": "*"
 	},
-
 	"suggests": {
 		"another-mod": "*"
 	}
