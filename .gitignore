@@ -7,8 +7,9 @@ classes/
 # Local secrets & overrides
 local.properties
 
-# Agent skills & lockfile
+# Agent skills, docs & lockfile
 .agents/skills/
+docs/agents/
 skills-lock.json
 
 # Game run & cache directories under Stonecutter versions/
