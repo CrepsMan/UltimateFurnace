@@ -4,6 +4,15 @@ build/
 out/
 classes/
 
+# Local secrets & overrides
+local.properties
+
+# Game run & cache directories under Stonecutter versions/
+versions/*/.cache/
+versions/*/config/
+versions/*/defaultconfigs/
+versions/*/logs/
+
 # Quilt Loom
 remappedSrc/
 run/
